@@ -6,7 +6,7 @@ from collections import OrderedDict
 
 class VariableTracker(gdb.Command):
     def __init__(self):
-        super().__init__("trace", gdb.COMMAND_USER)
+        super().__init__("runTrace", gdb.COMMAND_USER)
         self.steps = []
         self.struct = OrderedDict()
         self.step_counter = 0
