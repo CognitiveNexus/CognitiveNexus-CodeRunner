@@ -6,9 +6,11 @@
 
 本项目基于 Ubuntu 22.04.5 LTS 开发。使用 WSL 或许也能跑。
 
+如果不使用 Ubuntu，可能还需要安装 `coreutils` 和 `musl-dev` 两个包。
+
 ### 使用方法
 
-1. 安装依赖：`$ sudo apt-get install python3 gcc gdb expect`
+1. 安装依赖：`$ sudo apt-get install gcc gdb python3`
 2. 编写 `code.c`
 3. 编译：`$ ./compile.sh`
 4. 运行：`$ ./run.sh`
