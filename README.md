@@ -132,12 +132,12 @@ CognitiveNexus-CodeRunner
 
     ```jsonc
     {
-        "struct": [{                // 定义的结构体数据（可能不存在或为多组）
+        "struct": {                // 定义的结构体数据（可能不存在或为多组）
             "struct Node": {        // 结构体的名称
                 "data": 0,          // 结构体中，各个元素的名称和地址偏移
                 "next": 4
             }
-        }],
+        },
         "steps": [ /* ... */ ],     // 每一步执行的数据，详见下文
         "endState": "finished"      // 或 "timeout" 或 "overstep" 或 "aborted"
     }
