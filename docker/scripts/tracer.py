@@ -25,6 +25,8 @@ class VariableTracker(gdb.Command):
 
     def _handleStop(self, event):
         if isinstance(event, gdb.SignalEvent):
+            if self.endState == 'finished':
+                self.endState = 'aborted'
             return
         frame = gdb.selected_frame()
         sal = frame.find_sal()

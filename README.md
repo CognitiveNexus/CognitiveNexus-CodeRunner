@@ -139,7 +139,7 @@ CognitiveNexus-CodeRunner
             }
         }],
         "steps": [ /* ... */ ],     // 每一步执行的数据，详见下文
-        "endState": "finished"      // 或 "timeout" 或 "overstep"
+        "endState": "finished"      // 或 "timeout" 或 "overstep" 或 "aborted"
     }
     ```
 
@@ -147,11 +147,14 @@ CognitiveNexus-CodeRunner
 
     表示调试的结束状态：
 
-    -   `"finished"`：正常结束。
-    -   `"timeout"`：超出 5 秒的时间限制。
-    -   `"overstep"`：超出 500 步的执行限制。
+    -   `"finished"`：程序正常结束。
+    -   `"timeout"`：程序运行超出 5 秒的时间限制，因而被中止。
+    -   `"overstep"`：程序运行超出 500 步的执行限制，因而被中止。
+    -   `"aborted"`: 程序收到异常退出信号（如 `SIGINT`、`SIGSEGV`），因而被中止。
+    
+    注意，由于 `SIGKILL` 无法被 GDB 捕获，若程序因 `SIGKILL` 被中止（通常是因为内存不足），`endState` 仍会被标记为 `"finished"`。此时需结合 Run Log 中的 `SIGKILL` 记录判断实际退出原因。
 
-    即使 `endState` 为 `"timeout"` 或 `"overstep"`，已执行部分的数据仍会存储在 `struct` 和 `steps` 中。
+    即使 `endState` 非 `"finished"`，已执行部分的数据仍会完整存储在 `struct` 和 `steps` 中。
 
 -   `data.step`
 
