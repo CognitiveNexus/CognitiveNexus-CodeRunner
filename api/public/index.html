@@ -3,88 +3,229 @@
 <head>
     <meta charset="UTF-8">
     <title>Code Runner</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/theme/neo.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/codemirror.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.5/mode/clike/clike.min.js"></script>
+    <script src="https://jsontr.ee/static/js/jsontr.ee.js?v=0.27"></script>
+    <style>
+        :root {
+            --primary: #1976D2;
+            --bg: #f8fafc;
+            --border: #e2e8f0;
+        }
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        body {
+            background: var(--bg);
+            padding: 1.5rem;
+            min-height: 100vh;
+        }
+        .container {
+            display: flex;
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+        .editor-pane {
+            flex: 1;
+            min-width: 500px;
+            padding: 2rem;
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+        h1 {
+            color: #1e293b;
+            font-size: 1.75rem;
+            font-weight: 600;
+        }
+        #executeButton {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.5rem 1.25rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: filter 0.2s;
+        }
+        #executeButton:hover {
+            filter: brightness(1.1);
+        }
+        #executeButton:disabled {
+            cursor: wait;
+            opacity: 0.8;
+        }
+        .spinner {
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .input-group {
+            margin-bottom: 1.5rem;
+        }
+        .CodeMirror {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin: 0.5rem 0;
+        }
+        .CodeMirror-focused {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+        }
+        #stdin, #usst {
+            width: 100%;
+            padding: 0.5rem 0.75rem;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        .result-pane {
+            flex: 1;
+            min-width: 450px;
+            padding: 2rem;
+            border-left: 1px solid var(--border);
+        }
+        .tabs {
+            margin-bottom: 1rem;
+        }
+        .tab-buttons {
+            display: flex;
+            gap: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .tab-button {
+            padding: 0.5rem 1rem;
+            background: transparent;
+            border: none;
+            color: #64748b;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .tab-button.active {
+            color: var(--primary);
+            box-shadow: inset 0 -2px 0 var(--primary);
+        }
+        .tab-content {
+            display: none;
+            padding: 1rem 0;
+            height: 500px;
+            overflow: auto;
+        }
+        .tab-content.active {
+            display: block;
+        }
+    </style>
 </head>
 <body>
-    <div style="display: flex;">
-        <div style="flex: 1; margin-right: 20px;">
-            <h1>Code Runner</h1>
-            <form id="executionForm">
-                <label for="code">code</label><br />
-                <textarea id="code" name="code" rows="20" cols="80"></textarea><br /><br />
-                <label for="stdin">stdin</label><br />
-                <textarea id="stdin" name="stdin" rows="2" cols="80"></textarea><br /><br />
-                <label for="usst">usst</label><br />
-                <input type="text" id="usst" name="usst" />
-                <button type="button" id="executeButton" onclick="executeCode()">Run</button>
-            </form>
+    <div class="container">
+        <div class="editor-pane">
+            <div class="header">
+                <h1>Code Runner</h1>
+                <button id="executeButton" onclick="executeCode()">
+                    <span class="button-text">Run!</span>
+                </button>
+            </div>
+            <div class="input-group">
+                <textarea id="code" placeholder="// Enter C code here"></textarea>
+            </div>
+            <div class="input-group">
+                <textarea id="stdin" rows="3" placeholder="stdin stream"></textarea>
+            </div>
+            <div class="input-group">
+                <input type="text" id="usst" placeholder="mystery number" />
+            </div>
         </div>
-        <div style="flex: 1;">
-            <br /><br /><h2>Result</h2>
-            <div id="resultWindow">
-                <table border="1" cellpadding="10" cellspacing="0">
-                    <tr>
-                        <th>Output</th>
-                        <td><span id="output"></span></td>
-                    </tr>
-                    <tr>
-                        <th>Compile Log</th>
-                        <td><span id="compileLog"></span></td>
-                    </tr>
-                    <tr>
-                        <th>Run Log</th>
-                        <td><span id="runLog"></span></td>
-                    </tr>
-                </table>
+        <div class="result-pane">
+            <div class="tabs">
+                <div class="tab-buttons">
+                    <button class="tab-button active" data-tab="output">Output</button>
+                    <button class="tab-button" data-tab="compile">Compile</button>
+                    <button class="tab-button" data-tab="run">Runtime</button>
+                </div>
+                <div id="output" class="tab-content active"></div>
+                <div id="compile" class="tab-content"></div>
+                <div id="run" class="tab-content"></div>
             </div>
         </div>
     </div>
-
     <script>
-        const executeButton = document.getElementById('executeButton');
-        const outputElement = document.getElementById('output');
-        const compileLogElement = document.getElementById('compileLog');
-        const runLogElement = document.getElementById('runLog');
+        const editor = CodeMirror.fromTextArea(document.getElementById('code'), {
+            lineNumbers: true,
+            mode: 'text/x-csrc',
+            theme: 'neo',
+            indentUnit: 4
+        });
 
-        function executeCode() {
-            const code = document.getElementById('code').value;
-            const stdin = document.getElementById('stdin').value;
-            const usst = document.getElementById('usst').value;
-            const data = {
-                code: code,
-                stdin: stdin,
-                usst: usst
-            };
-
-            executeButton.disabled = true;
-            executeButton.textContent = 'Running';
-            outputElement.innerHTML = compileLogElement.innerHTML = runLogElement.innerHTML = '';
-
-            fetch('run.php', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(data),
-            })
-            .then(response => response.json())
-            .then(result => {
-                if (result.status === 'success') {
-                    outputElement.innerHTML = JSON.stringify(result.data);
-                } else {
-                    outputElement.innerHTML = 'error: ' + result.message.replaceAll('\n', '<br />');
-                }
-
-                compileLogElement.innerHTML = result.logs.compile.replaceAll('\n', '<br />');
-                runLogElement.innerHTML = result.logs.run.replaceAll('\n', '<br />');
-
-                executeButton.disabled = false;
-                executeButton.textContent = 'Run';
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                executeButton.disabled = false;
-                executeButton.textContent = 'Run';
+        document.querySelectorAll('.tab-button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.tab-button, .tab-content').forEach(el => {
+                    el.classList.remove('active');
+                });
+                btn.classList.add('active');
+                document.getElementById(btn.dataset.tab).classList.add('active');
             });
+        });
+
+        async function executeCode() {
+            const btn = document.getElementById('executeButton');
+            const originalHTML = btn.innerHTML;
+            try {
+                btn.disabled = true;
+                btn.innerHTML = `<div class="spinner"></div>`;
+                document.querySelectorAll('.tab-content').forEach(el => {
+                    el.innerHTML = '';
+                });
+                const data = {
+                    code: editor.getValue(),
+                    stdin: document.getElementById('stdin').value,
+                    usst: document.getElementById('usst').value
+                };
+                const response = await fetch('run.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                const result = await response.json();
+                if (result.status === 'success') {
+                    document.getElementById('output').innerHTML = generateJSONTree(result.data);
+                } else {
+                    document.getElementById('output').innerHTML = 'error: ' + result.message.replaceAll('\n', '<br />');
+                }
+                if(result.logs.compile !== false){
+                    document.getElementById('compile').innerHTML = result.logs.compile.replaceAll('\n', '<br />');
+                }
+                if(result.logs.run !== false){
+                    document.getElementById('run').innerHTML = result.logs.run.replaceAll('\n', '<br />');
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('output').textContent = `Error: ${error.message}`;
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = originalHTML;
+            }
         }
     </script>
 </body>
