@@ -1,5 +1,3 @@
 .vscode/
-
-code.c
-program
-dump.json
+tmp/
+api/vendor/

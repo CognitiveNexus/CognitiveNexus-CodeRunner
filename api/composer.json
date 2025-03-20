@@ -1,0 +1,19 @@
+{
+    "name": "cognitive-nexus/code-runner-backend",
+    "require": {
+        "micoli/docker-php-api-client": "^4.1",
+        "php": "^8.1",
+        "ext-uuid": "^1.2"
+    },
+    "authors": [
+        {
+            "name": "BobLiu",
+            "email": "bobliu@bobliu.tech"
+        }
+    ],
+    "config": {
+        "allow-plugins": {
+            "php-http/discovery": true
+        }
+    }
+}

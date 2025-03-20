@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Code Runner</title>
+</head>
+<body>
+    <div style="display: flex;">
+        <div style="flex: 1; margin-right: 20px;">
+            <h1>Code Runner</h1>
+            <form id="executionForm">
+                <label for="code">code</label><br />
+                <textarea id="code" name="code" rows="20" cols="80"></textarea><br /><br />
+                <label for="stdin">stdin</label><br />
+                <textarea id="stdin" name="stdin" rows="2" cols="80"></textarea><br /><br />
+                <label for="usst">usst</label><br />
+                <input type="text" id="usst" name="usst" />
+                <button type="button" id="executeButton" onclick="executeCode()">Run</button>
+            </form>
+        </div>
+        <div style="flex: 1;">
+            <br /><br /><h2>Result</h2>
+            <div id="resultWindow">
+                <table border="1" cellpadding="10" cellspacing="0">
+                    <tr>
+                        <th>Output</th>
+                        <td><span id="output"></span></td>
+                    </tr>
+                    <tr>
+                        <th>Compile Log</th>
+                        <td><span id="compileLog"></span></td>
+                    </tr>
+                    <tr>
+                        <th>Run Log</th>
+                        <td><span id="runLog"></span></td>
+                    </tr>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const executeButton = document.getElementById('executeButton');
+        const outputElement = document.getElementById('output');
+        const compileLogElement = document.getElementById('compileLog');
+        const runLogElement = document.getElementById('runLog');
+
+        function executeCode() {
+            const code = document.getElementById('code').value;
+            const stdin = document.getElementById('stdin').value;
+            const usst = document.getElementById('usst').value;
+            const data = {
+                code: code,
+                stdin: stdin,
+                usst: usst
+            };
+
+            executeButton.disabled = true;
+            executeButton.textContent = 'Running';
+            outputElement.innerHTML = compileLogElement.innerHTML = runLogElement.innerHTML = '';
+
+            fetch('run.php', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(data),
+            })
+            .then(response => response.json())
+            .then(result => {
+                if (result.status === 'success') {
+                    outputElement.innerHTML = JSON.stringify(result.data);
+                } else {
+                    outputElement.innerHTML = 'error: ' + result.message.replaceAll('\n', '<br />');
+                }
+
+                compileLogElement.innerHTML = result.logs.compile.replaceAll('\n', '<br />');
+                runLogElement.innerHTML = result.logs.run.replaceAll('\n', '<br />');
+
+                executeButton.disabled = false;
+                executeButton.textContent = 'Run';
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                executeButton.disabled = false;
+                executeButton.textContent = 'Run';
+            });
+        }
+    </script>
+</body>
+</html>
