@@ -1,20 +1,40 @@
 import gdb
 import json
 import time
-import threading
-from collections import OrderedDict
+import uuid
 
-class VariableTracker(gdb.Command):
+
+class VariableTracer(gdb.Command):
+    class LinearDict:
+        def __init__(self):
+            self._keys = []
+            self._values = []
+
+        def __setitem__(self, key, value):
+            for i, k in enumerate(self._keys):
+                if k == key:
+                    self._values[i] = value
+                    return
+            self._keys.append(key)
+            self._values.append(value)
+
+        def __getitem__(self, key):
+            for i, k in enumerate(self._keys):
+                if k == key:
+                    return self._values[i]
+            return None
+
     def __init__(self):
         super().__init__('runTrace', gdb.COMMAND_USER)
         self.steps = []
-        self.struct = OrderedDict()
+        self.type_definitions = {}
         self.step_counter = 0
         self.end_state = 'finished'
+        self.types = self.LinearDict()
 
     def invoke(self, arg, from_tty):
         print('== 开始执行 ==')
-        threading.Thread(target=self._timeout_task, daemon=True).start()
+        gdb.Thread(target=self._timeout_task, daemon=True).start()
         gdb.execute('set pagination off')
         gdb.execute('set disable-randomization off')
         gdb.execute('file /sandbox/program')
@@ -23,7 +43,7 @@ class VariableTracker(gdb.Command):
         gdb.events.exited.connect(self._finalize)
         gdb.execute('run < /sandbox/stdin > /sandbox/stdout 2>&1')
 
-    def _handle_stop(self, event):
+    def _handle_stop(self, event: gdb.Event):
         if isinstance(event, gdb.SignalEvent):
             if self.end_state == 'finished':
                 self.end_state = 'aborted'
@@ -46,13 +66,13 @@ class VariableTracker(gdb.Command):
         with open('/sandbox/stdout', 'r') as f:
             stdout = f.read()
 
-        step_data = OrderedDict([
-            ('step', self.step_counter),
-            ('line', frame.find_sal().line),
-            ('stdout', stdout),
-            ('variables', OrderedDict()),
-            ('memory', OrderedDict())
-        ])
+        step_data = {
+            'step': self.step_counter,
+            'line': frame.find_sal().line,
+            'stdout': stdout,
+            'variables': [],
+            'memory': {},
+        }
 
         block = frame.block()
         while block:
@@ -63,17 +83,22 @@ class VariableTracker(gdb.Command):
 
         self.steps.append(step_data)
 
-    def _process_symbol(self, var_name, step_data):
+    def _process_symbol(self, var_name: str, step_data: dict):
         try:
-            var = gdb.parse_and_eval(var_name)
-            var_addr = self._get_address(var)
-            step_data['variables'][var_name] = var_addr
+            val = gdb.selected_frame().read_var(var_name)
+            var_addr = self._get_address(val)
+            type_id = self._get_type_id(val.type)
+            step_data['variables'].append({
+                'name': var_name,
+                'typeId': type_id,
+                'address': var_addr,
+            })
             if var_addr != 'N/A':
-                self._parse_value(var, step_data['memory'], var_addr)
+                self._parse_value(val, step_data['memory'], var_addr)
         except gdb.error:
             pass
 
-    def _parse_value(self, value, memory_dict, base_addr):
+    def _parse_value(self, value: gdb.Value, memory_dict: dict, base_addr: str):
         try:
             ty = value.type.strip_typedefs()
             code = ty.code
@@ -87,14 +112,13 @@ class VariableTracker(gdb.Command):
         except Exception as e:
             pass
 
-    def _parse_pointer(self, value, ptr_type, ptr_addr, memory_dict):
+    def _parse_pointer(self, value: gdb.Value, ptr_type: gdb.Type, ptr_addr: str, memory_dict: dict):
         ptr_val = int(value)
-        entry = OrderedDict()
-
-        target_type = ptr_type.target().strip_typedefs()
-        entry['type'] = f'{target_type} *'
-        entry['value'] = hex(ptr_val) if ptr_val != 0 else 'NULL'
-        memory_dict[ptr_addr] = entry
+        type_id = self._get_type_id(ptr_type)
+        memory_dict[ptr_addr] = {
+            'typeId': type_id,
+            'rawBytes': hex(ptr_val)
+        }
 
         if ptr_val != 0:
             try:
@@ -103,52 +127,116 @@ class VariableTracker(gdb.Command):
             except (gdb.MemoryError, gdb.error):
                 pass
 
-    def _parse_struct(self, value, struct_type, base_addr, memory_dict):
-        type_name = str(struct_type)
-
-        if type_name not in self.struct:
-            offsets = OrderedDict()
-            for field in struct_type.fields():
-                if field.artificial or not field.name:
-                    continue
-                byte_offset = field.bitpos // 8
-                offsets[field.name] = byte_offset
-            self.struct[type_name] = offsets
-
+    def _parse_struct(self, value: gdb.Value, struct_type:gdb.Type, base_addr: str, memory_dict:dict):
         base_addr_int = int(base_addr, 16)
-        for field_name, offset in self.struct[type_name].items():
-            field_addr = hex(base_addr_int + offset)
+        for field in struct_type.fields():
+            if not field.name:
+                continue
+            field_addr = hex(base_addr_int + (field.bitpos // 8))
             try:
-                field_val = value[field_name]
+                field_val = value[field.name]
                 self._parse_value(field_val, memory_dict, field_addr)
             except gdb.error as e:
-                memory_dict[field_addr] = {'type': 'unknown', 'value': None}
+                memory_dict[field_addr] = { 'typeId': 'unknown', 'rawBytes': None }
 
-    def _parse_primitive(self, value, ty, addr, memory_dict):
-        entry = OrderedDict()
-        entry['type'] = str(ty)
+    def _parse_primitive(self, value: gdb.Value, ty:gdb.Type, addr:str, memory_dict: dict):
+        entry = {
+            'typeId': self._get_type_id(ty)
+        }
         try:
             if ty.code == gdb.TYPE_CODE_STRING:
-                entry['value'] = value.string()
+                entry['rawBytes'] = value.string()
             elif ty.code == gdb.TYPE_CODE_FLT:
-                entry['value'] = float(value)
+                entry['rawBytes'] = str(float(value))
             else:
-                entry['value'] = int(value)
+                entry['rawBytes'] = str(int(value))
         except gdb.error:
-            entry['value'] = str(value)
+            entry['rawBytes'] = str(value)
         memory_dict[addr] = entry
 
-    def _get_address(self, value):
+    def _get_address(self, value: gdb.Value):
         try:
             return hex(int(value.address))
         except (gdb.error, ValueError, TypeError):
             return 'N/A'
 
-    def _finalize(self, event):
-        output = OrderedDict()
-        output['struct'] = self.struct
-        output['steps'] = self.steps
-        output['endState'] = self.end_state
+    def _get_type_id(self, ty: gdb.Type):
+        if (type_id := self.types[ty]) is not None:
+            return type_id
+
+        base = ty.code
+        if base == gdb.TYPE_CODE_PTR:
+            target_type_id = self._get_type_id(ty.target().strip_typedefs())
+            type_id = ty.name or f'{target_type_id}*'
+            self.types[ty] = type_id
+            type_definition = {
+                'base': 'pointer',
+                'name': ty.name,
+                'size': ty.sizeof,
+                'targetTypeId': target_type_id,
+            }
+        elif base == gdb.TYPE_CODE_ARRAY:
+            element_type_id = self._get_type_id(ty.target().strip_typedefs())
+            type_id = f'{element_type_id}[{ty.length}]'
+            self.types[ty] = type_id
+            type_definition = {
+                "base": "array",
+                "elementTypeId": element_type_id,
+                "count": ty.length,
+                "size": ty.sizeof
+            }
+        elif base == gdb.TYPE_CODE_STRUCT:
+            type_id = f'struct {ty.name or f'<anonymous {uuid.uuid4()}>'}'
+            self.types[ty] = type_id
+            fields = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()), "offset": field.bitpos // 8 } for field in ty.fields() if field.name }
+            type_definition = {
+                "base": "struct",
+                "name": ty.name,
+                "fields": fields,
+                "size": ty.sizeof
+            }
+        elif base == gdb.TYPE_CODE_UNION:
+            type_id = f'union {ty.name or f'<anonymous {uuid.uuid4()}>'}'
+            self.types[ty] = type_id
+            variants = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()), "suffix": f'#{i}' } for i, field in enumerate(ty.fields()) if field.name }
+            type_definition = {
+                "base": "union",
+                "name": ty.name,
+                "variants": variants,
+                "size": ty.sizeof
+            }
+        elif base in (
+            gdb.TYPE_CODE_ENUM,
+            gdb.TYPE_CODE_FLAGS,
+            gdb.TYPE_CODE_FUNC,
+            gdb.TYPE_CODE_SET,
+            gdb.TYPE_CODE_RANGE,
+            gdb.TYPE_CODE_STRING,
+        ):
+            type_id = 'unsupported'
+            type_definition = {
+                'base': 'unsupported',
+                'name': ty.name or f'unsupported <{uuid.uuid4()}>',
+                'size': ty.sizeof
+            }
+            self.types[ty] = type_id
+        else:
+            type_id = ty.name
+            type_definition = {
+                "base": "atomic",
+                "name": ty.name,
+                "size": ty.sizeof
+            }
+            self.types[ty] = type_id
+        self.type_definitions[type_id] = type_definition
+        return type_id
+
+    def _finalize(self, event: gdb.Event):
+        output = {
+            'steps': self.steps,
+            'typeDefinitions': self.type_definitions,
+            'endState': self.end_state,
+        }
 
         with open('/sandbox/dump.json', 'w') as f:
             json.dump(output, f, indent=2)
@@ -160,6 +248,6 @@ class VariableTracker(gdb.Command):
         time.sleep(5)
         print('== 执行超时 ==')
         self.end_state = 'timeout'
-        gdb.execute('interrupt')
+        gdb.interrupt()
 
-VariableTracker()
+VariableTracer()
