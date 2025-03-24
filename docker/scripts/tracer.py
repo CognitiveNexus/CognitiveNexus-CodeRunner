@@ -92,7 +92,7 @@ class VariableTracer(gdb.Command):
                 'typeId': type_id,
                 'address': var_addr,
             })
-            if var_addr != 'N/A':
+            if var_addr not in ('NULL', 'N/A'):
                 self._parse_value(val, step_data['memory'], var_addr)
         except gdb.error:
             pass
@@ -115,9 +115,9 @@ class VariableTracer(gdb.Command):
         ptr_val = int(value)
         type_id = self._get_type_id(ptr_type)
         
-        memory_dict[f"{ptr_addr}:{type_id}"] = {
-            'value': hex(ptr_val),
-            'rawBytes': self._get_raw_bytes(value)
+        memory_dict[f'{ptr_addr}:{type_id}'] = {
+            'value': hex(ptr_val) if ptr_val else 'NULL',
+            'rawBytes': self._get_raw_bytes(value),
         }
 
         if ptr_val != 0:
@@ -159,12 +159,13 @@ class VariableTracer(gdb.Command):
 
     def _get_address(self, value: gdb.Value):
         try:
-            return hex(int(value.address))
+            addr = int(value.address)
+            return hex(addr) if addr else 'NULL'
         except (gdb.error, ValueError, TypeError):
             return 'N/A'
 
     def _get_raw_bytes(self, value: gdb.Value):
-        return ' '.join(f"{byte:02X}" for byte in value.bytes)
+        return ' '.join(f'{byte:02X}' for byte in value.bytes)
 
     def _get_type_id(self, ty: gdb.Type):
         if (type_id := self.types[ty]) is not None:
@@ -177,39 +178,36 @@ class VariableTracer(gdb.Command):
             self.types[ty] = type_id
             type_definition = {
                 'base': 'pointer',
-                'name': ty.name,
-                'size': ty.sizeof,
                 'targetTypeId': target_type_id,
+                'size': ty.sizeof,
             }
         elif base == gdb.TYPE_CODE_ARRAY:
             element_type_id = self._get_type_id(ty.target().strip_typedefs())
             type_id = f'{element_type_id}[{ty.length}]'
             self.types[ty] = type_id
             type_definition = {
-                "base": "array",
-                "elementTypeId": element_type_id,
-                "count": ty.length,
-                "size": ty.sizeof
+                'base': 'array',
+                'elementTypeId': element_type_id,
+                'count': ty.length,
+                'size': ty.sizeof,
             }
         elif base == gdb.TYPE_CODE_STRUCT:
             type_id = f'struct {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             self.types[ty] = type_id
-            fields = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()), "offset": field.bitpos // 8 } for field in ty.fields() if field.name }
+            fields = { field.name: { 'typeId': self._get_type_id(field.type.strip_typedefs()), 'offset': field.bitpos // 8 } for field in ty.fields() if field.name }
             type_definition = {
-                "base": "struct",
-                "name": ty.name,
-                "fields": fields,
-                "size": ty.sizeof
+                'base': 'struct',
+                'fields': fields,
+                'size': ty.sizeof
             }
         elif base == gdb.TYPE_CODE_UNION:
             type_id = f'union {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             self.types[ty] = type_id
-            variants = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()) } for field in ty.fields() if field.name }
+            variants = { field.name: { 'typeId': self._get_type_id(field.type.strip_typedefs()) } for field in ty.fields() if field.name }
             type_definition = {
-                "base": "union",
-                "name": ty.name,
-                "variants": variants,
-                "size": ty.sizeof
+                'base': 'union',
+                'variants': variants,
+                'size': ty.sizeof,
             }
         elif base in (
             gdb.TYPE_CODE_ENUM,
@@ -222,16 +220,14 @@ class VariableTracer(gdb.Command):
             type_id = f'unsupported {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             type_definition = {
                 'base': 'unsupported',
-                'name': type_id,
-                'size': ty.sizeof
+                'size': ty.sizeof,
             }
             self.types[ty] = type_id
         else:
             type_id = ty.name
             type_definition = {
-                "base": "atomic",
-                "name": ty.name,
-                "size": ty.sizeof
+                'base': 'atomic',
+                'size': ty.sizeof,
             }
             self.types[ty] = type_id
         self.type_definitions[type_id] = type_definition
