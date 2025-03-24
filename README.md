@@ -165,3 +165,4 @@ CognitiveNexus-CodeRunner
 ## 已知问题
 
 -   暂不支持：枚举、位域、函数指针类型。
+-   暂不支持通过 malloc() 创建的、用法类似数组的指针。

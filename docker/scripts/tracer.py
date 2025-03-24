@@ -104,6 +104,8 @@ class VariableTracer(gdb.Command):
 
             if code == gdb.TYPE_CODE_PTR:
                 self._parse_pointer(value, ty, base_addr, memory_dict)
+            elif code == gdb.TYPE_CODE_ARRAY:
+                self._parse_array(value, ty, base_addr, memory_dict)
             elif code in (gdb.TYPE_CODE_STRUCT, gdb.TYPE_CODE_UNION):
                 self._parse_composite(value, ty, base_addr, memory_dict)
             else:
@@ -124,6 +126,19 @@ class VariableTracer(gdb.Command):
             try:
                 self._parse_value(value.dereference(), memory_dict, hex(ptr_val))
             except (gdb.MemoryError, gdb.error):
+                pass
+    
+    def _parse_array(self, value: gdb.Value, arr_type: gdb.Type, arr_addr: str, memory_dict: dict):
+        base_address = int(arr_addr, 16)
+        element_size = arr_type.target().strip_typedefs().sizeof
+        array_length = arr_type.sizeof // element_size
+
+        for i in range(array_length):
+            try:
+                element = value[i]
+                element_addr = base_address + i * element_size
+                self._parse_value(element, memory_dict, hex(element_addr))
+            except (gdb.MemoryError, gdb.error, ValueError):
                 pass
 
     def _parse_composite(self, value: gdb.Value, comp_type: gdb.Type, base_addr: str, memory_dict: dict):
@@ -182,13 +197,15 @@ class VariableTracer(gdb.Command):
                 'size': ty.sizeof,
             }
         elif base == gdb.TYPE_CODE_ARRAY:
-            element_type_id = self._get_type_id(ty.target().strip_typedefs())
-            type_id = f'{element_type_id}[{ty.length}]'
+            element_type = ty.target().strip_typedefs()
+            element_type_id = self._get_type_id(element_type)
+            length = ty.sizeof // element_type.sizeof
+            type_id = f'{element_type_id}[{length}]'
             self.types[ty] = type_id
             type_definition = {
                 'base': 'array',
                 'elementTypeId': element_type_id,
-                'count': ty.length,
+                'length': length,
                 'size': ty.sizeof,
             }
         elif base == gdb.TYPE_CODE_STRUCT:
