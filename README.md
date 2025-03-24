@@ -9,7 +9,7 @@
 
 本项目提供了一个安全的 C 语言代码执行环境，通过以下技术栈实现：
 
--   **PHP 8.1+**：作为 HTTP 请求的接收和处理层，负责解析用户提交的代码并调用 Docker 执行环境。
+-   **PHP**：作为 HTTP 请求的接收和处理层，负责解析用户提交的代码并调用 Docker 执行环境。
 -   **Docker CE**：提供隔离的代码执行环境，确保用户代码不会影响主机系统。
 -   **GCC**：用于编译用户提交的 C 语言代码。
 -   **GDB**：通过 GDB Python API 监控和分析代码执行过程。
@@ -18,7 +18,7 @@
 
 ## 运行环境
 
--   **PHP 8.1 或更高版本**
+-   **PHP 8.1** 或更高版本
 -   **Docker CE**
 
 ## 快速开始
@@ -114,7 +114,7 @@ CognitiveNexus-CodeRunner
     "data": { /* ... */ },  // 调试结果，仅当 status 为 success 时存在
     "message": "...",       // 错误消息，仅当 status 为 error 时存在
     "logs": {
-        "compile": "...",   // GCC 编译输出，编译通过且无警告时为空
+        "compile": "...",   // GCC 编译输出
         "run": "..."        // GDB 运行输出
     }
 }
@@ -132,14 +132,9 @@ CognitiveNexus-CodeRunner
 
     ```jsonc
     {
-        "struct": {                // 定义的结构体数据（可能不存在或为多组）
-            "struct Node": {        // 结构体的名称
-                "data": 0,          // 结构体中，各个元素的名称和地址偏移
-                "next": 4
-            }
-        },
-        "steps": [ /* ... */ ],     // 每一步执行的数据，详见下文
-        "endState": "finished"      // 或 "timeout" 或 "overstep" 或 "aborted"
+        "typeDefinitions": { /* ... */ },    // 类型定义
+        "steps": [ /* ... */ ],             // 每一步执行的数据
+        "endState": "finished"              // 或 "timeout" 或 "overstep" 或 "aborted"
     }
     ```
 
@@ -156,33 +151,16 @@ CognitiveNexus-CodeRunner
 
     即使 `endState` 非 `"finished"`，已执行部分的数据仍会完整存储在 `struct` 和 `steps` 中。
 
+-   `data.typeDefinitions`
+
+    包含程序中各个变量类型的详细信息。
+
 -   `data.step`
 
-    包含每一步执行的详细信息，每一项的结构如下：
-
-    ```jsonc
-    {
-        "step": 5,                  // 当前步数
-        "line": 6,                  // 当前行号
-        "stdout": "Hello, world!",  // 标准输出流中的内容
-        "variables": {
-            "a": "0x7ffd25c8294c",  // 变量名称及其地址
-            "b": "0x7ffd25c82950"
-        },
-        "memory": {                 // 内存数据
-            "0x7ffd25c8294c": {     // 内存地址
-                "type": "int",      // 变量类型
-                "value": 114514     // 变量值
-            },
-            "0x7ffd25c82950": {
-                "type": "int *",
-                "value": "0x7ffd25c8294c"
-            }
-        }
-    }
-    ```
+    包含每一步执行的详细信息。
+    
+更具体的结构可以参见结果的 [TypeScript 类型定义](https://github.com/CognitiveNexus/CognitiveNexus-CodeRunnerFrontend/blob/main/src/types/CodeRunnerTypes.ts)。
 
 ## 已知问题
 
--   若运行超时（如编写死循环），有概率返回错误-空结果
--   对内存的处理不是很严谨
+-   暂不支持：枚举、位域、函数指针类型。
