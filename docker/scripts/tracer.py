@@ -1,8 +1,6 @@
 import gdb
 import json
 import time
-import uuid
-
 
 class VariableTracer(gdb.Command):
     class LinearDict:
@@ -31,6 +29,7 @@ class VariableTracer(gdb.Command):
         self.step_counter = 0
         self.end_state = 'finished'
         self.types = self.LinearDict()
+        self.anonymous_counter = 0
 
     def invoke(self, arg, from_tty):
         print('== 开始执行 ==')
@@ -106,7 +105,7 @@ class VariableTracer(gdb.Command):
             if code == gdb.TYPE_CODE_PTR:
                 self._parse_pointer(value, ty, base_addr, memory_dict)
             elif code in (gdb.TYPE_CODE_STRUCT, gdb.TYPE_CODE_UNION):
-                self._parse_struct(value, ty, base_addr, memory_dict)
+                self._parse_composite(value, ty, base_addr, memory_dict)
             else:
                 self._parse_primitive(value, ty, base_addr, memory_dict)
         except Exception as e:
@@ -115,47 +114,49 @@ class VariableTracer(gdb.Command):
     def _parse_pointer(self, value: gdb.Value, ptr_type: gdb.Type, ptr_addr: str, memory_dict: dict):
         ptr_val = int(value)
         type_id = self._get_type_id(ptr_type)
-        memory_dict[ptr_addr] = {
-            'typeId': type_id,
+        
+        memory_dict[f"{ptr_addr}:{type_id}"] = {
             'value': hex(ptr_val),
             'rawBytes': self._get_raw_bytes(value)
         }
 
         if ptr_val != 0:
             try:
-                deref = value.dereference()
-                self._parse_value(deref, memory_dict, hex(ptr_val))
+                self._parse_value(value.dereference(), memory_dict, hex(ptr_val))
             except (gdb.MemoryError, gdb.error):
                 pass
 
-    def _parse_struct(self, value: gdb.Value, struct_type:gdb.Type, base_addr: str, memory_dict:dict):
-        base_addr_int = int(base_addr, 16)
-        for field in struct_type.fields():
-            if not field.name:
-                continue
-            field_addr = hex(base_addr_int + (field.bitpos // 8))
-            try:
-                field_val = value[field.name]
-                self._parse_value(field_val, memory_dict, field_addr)
-            except gdb.error as e:
-                memory_dict[field_addr] = { 'typeId': 'unknown', 'value': None, 'rawBytes': None }
+    def _parse_composite(self, value: gdb.Value, comp_type: gdb.Type, base_addr: str, memory_dict: dict):
+        base_address = int(base_addr, 16)
+        fields = []
+
+        for field in comp_type.fields():
+            fields.append({
+                'base_offset': 0,
+                'field': field,
+            })
+
+        while fields:
+            base_offset, field = fields.pop(0).values()
+            offset = field.bitpos // 8 if comp_type.code == gdb.TYPE_CODE_STRUCT else 0
+            field_addr = hex(base_address + base_offset + offset)
+            
+            if field.name:
+                self._parse_value(value[field.name], memory_dict, field_addr)
+            else:
+                for child_field in field.type.fields():
+                    fields.append({
+                        'base_offset': offset,
+                        'field': child_field,
+                    })
 
     def _parse_primitive(self, value: gdb.Value, ty:gdb.Type, addr:str, memory_dict: dict):
-        entry = {
-            'typeId': self._get_type_id(ty),
+        type_id = self._get_type_id(ty)
+        memory_dict[f'{addr}:{type_id}'] = {
+            'value': value.format_string(),
             'rawBytes': self._get_raw_bytes(value),
         }
-        try:
-            if ty.code == gdb.TYPE_CODE_STRING:
-                entry['value'] = value.string()
-            elif ty.code == gdb.TYPE_CODE_FLT:
-                entry['value'] = str(float(value))
-            else:
-                entry['value'] = str(int(value))
-        except gdb.error:
-            entry['value'] = str(value)
-        memory_dict[addr] = entry
- 
+
     def _get_address(self, value: gdb.Value):
         try:
             return hex(int(value.address))
@@ -163,8 +164,7 @@ class VariableTracer(gdb.Command):
             return 'N/A'
 
     def _get_raw_bytes(self, value: gdb.Value):
-        hex_parts = ["{:02X}".format(byte) for byte in value.bytes]
-        return ' '.join(hex_parts)
+        return ' '.join(f"{byte:02X}" for byte in value.bytes)
 
     def _get_type_id(self, ty: gdb.Type):
         if (type_id := self.types[ty]) is not None:
@@ -192,7 +192,7 @@ class VariableTracer(gdb.Command):
                 "size": ty.sizeof
             }
         elif base == gdb.TYPE_CODE_STRUCT:
-            type_id = f'struct {ty.name or f'<anonymous {uuid.uuid4()}>'}'
+            type_id = f'struct {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             self.types[ty] = type_id
             fields = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()), "offset": field.bitpos // 8 } for field in ty.fields() if field.name }
             type_definition = {
@@ -202,9 +202,9 @@ class VariableTracer(gdb.Command):
                 "size": ty.sizeof
             }
         elif base == gdb.TYPE_CODE_UNION:
-            type_id = f'union {ty.name or f'<anonymous {uuid.uuid4()}>'}'
+            type_id = f'union {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             self.types[ty] = type_id
-            variants = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()), "suffix": f'#{i}' } for i, field in enumerate(ty.fields()) if field.name }
+            variants = { field.name: { "typeId": self._get_type_id(field.type.strip_typedefs()) } for field in ty.fields() if field.name }
             type_definition = {
                 "base": "union",
                 "name": ty.name,
@@ -219,10 +219,10 @@ class VariableTracer(gdb.Command):
             gdb.TYPE_CODE_RANGE,
             gdb.TYPE_CODE_STRING,
         ):
-            type_id = 'unsupported'
+            type_id = f'unsupported {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             type_definition = {
                 'base': 'unsupported',
-                'name': ty.name or f'unsupported <{uuid.uuid4()}>',
+                'name': type_id,
                 'size': ty.sizeof
             }
             self.types[ty] = type_id
@@ -236,6 +236,10 @@ class VariableTracer(gdb.Command):
             self.types[ty] = type_id
         self.type_definitions[type_id] = type_definition
         return type_id
+    
+    def _get_anonymous_id(self):
+        self.anonymous_counter += 1
+        return self.anonymous_counter
 
     def _finalize(self, event: gdb.Event):
         output = {

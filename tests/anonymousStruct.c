@@ -1,18 +1,23 @@
 #include <stdio.h>
 
-struct {    
-    char foo;
-    int bar;
-} fooBar;
 struct {
     long lorem;
     double ipsum;
+    struct {
+        char foo;
+        int bar;
+    } dolor;
+    union {
+        char sit;
+        int amet;
+    };
 } loremIpsum;
 
 int main() {
-    fooBar.foo = '#';
-    fooBar.bar = 114514;
     loremIpsum.lorem = 0L;
     loremIpsum.ipsum = 0.0;
-    return loremIpsum.lorem + loremIpsum.ipsum;
+    loremIpsum.dolor.foo = '0';
+    loremIpsum.dolor.bar = 0;
+    loremIpsum.sit = '\0';
+    return loremIpsum.amet;
 }
