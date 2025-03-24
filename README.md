@@ -87,6 +87,7 @@ CognitiveNexus-CodeRunner
 │       ├── start.sh
 │       └── tracer.py       # GDB 调试脚本，用于监控和分析代码执行过程
 ├── README.md
+├── tests/                  # 用于测试接口的 C 语言代码，后续可能会设计自动化测试流程
 └── tmp/                    # 文件沙盒，用于存储用户提交的代码和临时文件
 ```
 
