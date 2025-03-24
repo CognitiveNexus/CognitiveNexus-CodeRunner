@@ -117,7 +117,8 @@ class VariableTracer(gdb.Command):
         type_id = self._get_type_id(ptr_type)
         memory_dict[ptr_addr] = {
             'typeId': type_id,
-            'rawBytes': hex(ptr_val)
+            'value': hex(ptr_val),
+            'rawBytes': self._get_raw_bytes(value)
         }
 
         if ptr_val != 0:
@@ -137,28 +138,33 @@ class VariableTracer(gdb.Command):
                 field_val = value[field.name]
                 self._parse_value(field_val, memory_dict, field_addr)
             except gdb.error as e:
-                memory_dict[field_addr] = { 'typeId': 'unknown', 'rawBytes': None }
+                memory_dict[field_addr] = { 'typeId': 'unknown', 'value': None, 'rawBytes': None }
 
     def _parse_primitive(self, value: gdb.Value, ty:gdb.Type, addr:str, memory_dict: dict):
         entry = {
-            'typeId': self._get_type_id(ty)
+            'typeId': self._get_type_id(ty),
+            'rawBytes': self._get_raw_bytes(value),
         }
         try:
             if ty.code == gdb.TYPE_CODE_STRING:
-                entry['rawBytes'] = value.string()
+                entry['value'] = value.string()
             elif ty.code == gdb.TYPE_CODE_FLT:
-                entry['rawBytes'] = str(float(value))
+                entry['value'] = str(float(value))
             else:
-                entry['rawBytes'] = str(int(value))
+                entry['value'] = str(int(value))
         except gdb.error:
-            entry['rawBytes'] = str(value)
+            entry['value'] = str(value)
         memory_dict[addr] = entry
-
+ 
     def _get_address(self, value: gdb.Value):
         try:
             return hex(int(value.address))
         except (gdb.error, ValueError, TypeError):
             return 'N/A'
+
+    def _get_raw_bytes(self, value: gdb.Value):
+        hex_parts = ["{:02X}".format(byte) for byte in value.bytes]
+        return ' '.join(hex_parts)
 
     def _get_type_id(self, ty: gdb.Type):
         if (type_id := self.types[ty]) is not None:
