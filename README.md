@@ -37,7 +37,7 @@ cd CognitiveNexus-CodeRunner
 1.  安装 `php-fpm`：
 
     ```bash
-    sudo apt-get install php8.1-fpm
+    sudo apt-get install php8.1-fpm php8.1-uuid composer
     ```
 
 2.  安装 Composer 依赖：
