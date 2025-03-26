@@ -29,6 +29,7 @@ class VariableTracer(gdb.Command):
         self.step_counter = 0
         self.end_state = 'finished'
         self.types = self.LinearDict()
+        self.previous_line = None
         self.anonymous_counter = 0
 
     def invoke(self, arg, from_tty):
@@ -61,13 +62,18 @@ class VariableTracer(gdb.Command):
     def _capture_state(self):
         self.step_counter += 1
         frame = gdb.selected_frame()
+        current_line = frame.find_sal().line
+
+        if self.previous_line is None:
+            self.previous_line = current_line
+            return
 
         with open('/sandbox/stdout', 'r') as f:
             stdout = f.read()
 
         step_data = {
             'step': self.step_counter,
-            'line': frame.find_sal().line,
+            'line': self.previous_line,
             'stdout': stdout,
             'variables': [],
             'memory': {},
@@ -81,6 +87,7 @@ class VariableTracer(gdb.Command):
             block = block.superblock
 
         self.steps.append(step_data)
+        self.previous_line = current_line
 
     def _process_symbol(self, var_name: str, step_data: dict):
         try:
