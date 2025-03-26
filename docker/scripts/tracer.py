@@ -186,10 +186,10 @@ class VariableTracer(gdb.Command):
         except (gdb.error, ValueError, TypeError):
             return 'N/A'
 
-    def _get_raw_bytes(self, value: gdb.Value):
+    def _get_raw_bytes(self, value: gdb.Value,):
         return ' '.join(f'{byte:02X}' for byte in value.bytes)
 
-    def _get_type_id(self, ty: gdb.Type):
+    def _get_type_id(self, ty: gdb.Type, save: bool = True):
         if (type_id := self.types[ty]) is not None:
             return type_id
 
@@ -215,23 +215,29 @@ class VariableTracer(gdb.Command):
                 'length': length,
                 'size': ty.sizeof,
             }
-        elif base == gdb.TYPE_CODE_STRUCT:
-            type_id = f'struct {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
+        elif base in (gdb.TYPE_CODE_STRUCT, gdb.TYPE_CODE_UNION):
+            base_name = 'struct' if base == gdb.TYPE_CODE_STRUCT else 'union'
+            type_id = f'{base_name} {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
             self.types[ty] = type_id
-            fields = { field.name: { 'typeId': self._get_type_id(field.type.strip_typedefs()), 'offset': field.bitpos // 8 } for field in ty.fields() if field.name }
+            fields = {}
+            for field in ty.fields():
+                offset = (field.bitpos // 8) if base_name == 'struct' else 0
+                if field.name:
+                    fields[field.name] = {
+                        'typeId': self._get_type_id(field.type.strip_typedefs()),
+                        'offset': offset
+                    }
+                else:
+                    child_struct = self._get_type_id(field.type.strip_typedefs(), False)
+                    for field_name, field_detail in child_struct['fields'].items():
+                        fields[field_name] = {
+                            'typeId': field_detail['typeId'],
+                            'offset': offset + field_detail['offset']
+                        }
             type_definition = {
-                'base': 'struct',
+                'base': base_name,
                 'fields': fields,
                 'size': ty.sizeof
-            }
-        elif base == gdb.TYPE_CODE_UNION:
-            type_id = f'union {ty.name or f'<anonymous {self._get_anonymous_id()}>'}'
-            self.types[ty] = type_id
-            variants = { field.name: { 'typeId': self._get_type_id(field.type.strip_typedefs()) } for field in ty.fields() if field.name }
-            type_definition = {
-                'base': 'union',
-                'variants': variants,
-                'size': ty.sizeof,
             }
         elif base in (
             gdb.TYPE_CODE_ENUM,
@@ -254,8 +260,12 @@ class VariableTracer(gdb.Command):
                 'size': ty.sizeof,
             }
             self.types[ty] = type_id
-        self.type_definitions[type_id] = type_definition
-        return type_id
+
+        if save:
+            self.type_definitions[type_id] = type_definition
+            return type_id
+        else:
+            return type_definition
     
     def _get_anonymous_id(self):
         self.anonymous_counter += 1
