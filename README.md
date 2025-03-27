@@ -160,7 +160,7 @@ CognitiveNexus-CodeRunner
 
     包含每一步执行的详细信息。
     
-更具体的结构可以参见结果的 [TypeScript 类型定义](https://github.com/CognitiveNexus/CognitiveNexus-CodeRunnerFrontend/blob/main/src/types/CodeRunnerTypes.ts)。
+更具体的结构可以参见结果的 [TypeScript 类型定义](https://github.com/CognitiveNexus/CognitiveNexus-Frontend/blob/main/src/types/CodeRunnerTypes.ts)。
 
 ## 已知问题
 
