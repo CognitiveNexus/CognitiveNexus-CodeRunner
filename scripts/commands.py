@@ -1,6 +1,7 @@
 import gdb
 import json
 import time
+import threading
 
 class VariableTracer(gdb.Command):
     class LinearDict:
@@ -23,7 +24,7 @@ class VariableTracer(gdb.Command):
             return None
 
     def __init__(self):
-        super().__init__('runTrace', gdb.COMMAND_USER)
+        super().__init__('tracer', gdb.COMMAND_USER)
         self.steps = []
         self.type_definitions = {}
         self.step_counter = 0
@@ -35,8 +36,6 @@ class VariableTracer(gdb.Command):
     def invoke(self, arg, from_tty):
         print('== 开始执行 ==')
         gdb.Thread(target=self._timeout_task, daemon=True).start()
-        gdb.execute('set pagination off')
-        gdb.execute('set disable-randomization off')
         gdb.execute('file /sandbox/program')
         gdb.execute('rbreak code.c:.*')
         gdb.events.stop.connect(self._handle_stop)
@@ -278,7 +277,7 @@ class VariableTracer(gdb.Command):
             'endState': self.end_state,
         }
 
-        with open('/sandbox/dump.json', 'w') as f:
+        with open('/sandbox/result.json', 'w') as f:
             json.dump(output, f, indent=2)
 
         print('== 执行完成 ==')
@@ -290,4 +289,49 @@ class VariableTracer(gdb.Command):
         self.end_state = 'timeout'
         gdb.interrupt()
 
+class CodeJudger(gdb.Command):
+    def __init__(self):
+        super().__init__('judger', gdb.COMMAND_USER)
+        with open('/sandbox/tests.json', 'r') as f:
+            self.tests = json.load(f)
+        self.completed = 0
+        self.inferiors = {}
+        self.lock = threading.Lock()
+    
+    def invoke(self, arg, from_tty):
+        print('== 开始执行 ==')
+        gdb.events.exited.connect(self._finalize)
+        for test_index, test in enumerate(self.tests):
+            test['endState'] = 'finished'
+            gdb.execute('add-inferior')
+            inferior = gdb.inferiors()[-1]
+            inferior_num = inferior.num
+            self.inferiors[inferior_num] = {
+                'inferior': inferior,
+                'test_index': test_index,
+                'finished': False
+            }
+            with open(f'/sandbox/stdin_{inferior_num}', 'w') as f:
+                f.write(test['stdin'])
+
+            gdb.execute(f'inferior {inferior_num}')
+            gdb.execute('file /sandbox/program')
+            gdb.execute(f'run < /sandbox/stdin_{inferior_num} > /sandbox/stdout_{inferior_num} 2>&1')
+        with open('/sandbox/result.json', 'w') as f:
+            json.dump({'tests': self.tests}, f, indent=2)
+        print('== 全部完成 ==')
+
+    def _finalize(self, event: gdb.Event):
+        with self.lock:
+            self.completed += 1
+        inferior_num = event.inferior.num
+        self.inferiors[inferior_num]['finished'] = True
+        test = self.tests[self.inferiors[inferior_num]['test_index']]
+
+        with open(f'/sandbox/stdout_{inferior_num}', 'r') as f:
+            test['stdout'] = f.read()
+
+gdb.execute('set pagination off')
+gdb.execute('set disable-randomization off')
 VariableTracer()
+CodeJudger()
